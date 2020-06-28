@@ -1,0 +1,429 @@
+---
+title: "Time Series Project G.LEKA and L.GRUNENWALD"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Purpose
+
+The aim of this project is to study the link between different macroeconomic series. Understand their interactions and their degrees of reaction to each other.
+To do this, we will set up VAR models and then deduce impulse response functions (IRF). These impulse response functions will allow us to quantify the degrees of response of the regions in relation to each other.
+
+# I ) Introduction
+
+```{r echo=TRUE}
+rm(list = ls())
+setwd("C:/Users/geril/OneDrive/Bureau/MoSEF/Ielpo/Projet/Final")
+data_entry= read.csv("Data.csv", head= TRUE, sep= ";", dec=",")
+```
+
+#### Data type Formatting
+
+We are adapting our data here in a format that will help us for the rest of the project.
+
+```{r include=FALSE}
+sapply(data_entry, typeof)
+data_entry$X <- as.Date(data_entry$X, format = "%d.%m.%Y")  
+indx <- sapply(data_entry, is.factor)
+data_entry[indx] <- lapply(data_entry[indx], function(x) as.numeric(as.character(x)))
+sapply(data_entry, typeof)
+rm(indx)
+```
+
+#### Ploting initial data
+
+Below we can observe the distribution of the data available.
+These charts represent the series of GDP growth rates in 3 distinct areas (China, USA, Europe).
+
+```{r}
+#dev.off()
+plot(data_entry$X,data_entry$China, xlab="Date", ylab="GDP Growth",type='l', main="China GDP", col="blue")
+plot(data_entry$X,data_entry$USA, xlab="Date", ylab="GDP Growth",type='l', main="USA GDP", col="red")
+plot(data_entry$X,data_entry$Eurozone, xlab="Date", ylab="GDP Growth",type='l', main="Eurozone", col="darkgreen")
+```
+As we can see in the charts, we might notice that the Eurzone and the USA growth rate follows the same trajectory.This is well shown thanks to the correlation matrix that shows a high correlation of 70% between USA and EU. We can't say the same for China. However, 2008 was a big shock to all of the them.
+There are two trends, one for the USA and Europe with fairly stable rates between 0 and 4%. This century China has had amazing growth between 6 and 14%, even if is fading down.
+Finally, it is important to note that China has never experienced negative rates over this period, unlike Europe and the USA.
+
+```{r}
+dates = as.Date(data_entry[, 1], format= "%d.%m.%Y")
+data=as.matrix(data_entry[,2:4])
+data = data/100
+print("Correlation Matrix")
+cor(data)
+```
+
+
+# II ) Research
+
+## Question 1 : Explain what a VAR model and an impulse response function is.
+
+
+VAR models are the mainstay of modern applied macroeconomics.
+Those are multivariate linear time series models designed to capture the joint dynamics of multiple
+time series. We treat each endogenous variable in the system as a function of lagged values of the same endegoenous variables.
+This all started with Sims' Critique in which he criticized the large-scale macroeconomics models of the 80s because of the strong restrictions. In a world with irrational foward looking agents, no variable can be deemed as exogenous. 
+
+The vector autoregression (VAR) model extends the idea of univariate autoregression to k
+time series regressions, where the lagged values of all k series appear as regressors. Put differently, in a VAR model we regress a vector of time series variables on lagged vectors of these variables.
+
+## Question 2 : Using information criterions, estimate the lag to be used with the three data series for your VAR model. What do you think of this lag?
+
+Let
+$$
+Y_{t} = (y_{1t},...,y_{nt}) \\
+$$
+denote an (nx1) vector of time series variables. 
+
+The baisc p-lag vector autoregressive VAR(p) model has the form:
+$$
+Y_{t} =  c + \Phi_1Y_{t-1}+ \Phi_2Y_{t-2} +\cdots +\Phi_pY_{t-p} + \epsilon_{t} \\
+$$
+The VAR model can be used for forecasting. Using the conditional expectation of Y(t+1) knwoing It(information until t (Yt,Yt-1,Yt-2....)) etc.
+The second usage of the VAR is the impluse response functions. Since all variables in a VAR model depend on each other, individual coefficient estimates only provide limited information on the reaction of the system to a shock. In order to get a better picture of the model's dynamic behaviour, impulse responses (IR) are used. The departure point of every impluse reponse function for a linear VAR model is its moving average (MA) representation, which is also the forecast error impulse response (FEIR) function. 
+
+
+$$
+{y}_t = A_1 {y}_{t-1} + \ldots + A_p {y}_{t-p} + CD_t+ {u}_t \\
+$$
+
+Below three mean to measure model's performance : 
+
+Akaike Criterion formula:
+
+$$
+AIC(n) = \ln \det(\tilde{\Sigma}_u(n)) + \frac{2}{T}n K^2 \quad \\
+$$
+
+HQ Criterion formula:
+
+$$
+HQ(n) = \ln \det(\tilde{\Sigma}_u(n)) + \frac{2 \ln(\ln(T))}{T}n K^2 \quad \\
+$$
+
+Bayesian Criterion formula:
+
+$$
+BIC(n) = \ln \det(\tilde{\Sigma}_u(n)) + \frac{\ln(T)}{T}n K^2 \quad \\
+$$
+
+with
+
+$$
+\tilde{\Sigma}_u (n) = T^{-1} \sum_{t=1}^T {\hat{u}}_t 
+$$
+is the total number of the parameters in each equation and \eqn{n} assigns the lag order.  
+
+##### n = number of lags
+##### T = number of observations
+##### k = number of parameters (nk**2)
+
+In a VAR model, it is important to determine the optimal number of delays to integrate into our model. That's why we are trying to construct a function that will take the series, perform a fitted version of the regression and take the residuals. These errors will be calculated for each lag (in each iteration). Furthermore, this calculation will help us compute the information criterions, AIC, BIC and HQ. the aim is to find the model with the lowest value of the selected information criterion, this will help us find the best fitted model. As a rule, we will choose the two of the best.
+We know that it was easier to to do a VAR(p) and detect the lag from that function but we tried this way just for simplicity purpose. It helped us see new ways of exploration, however you will find the VAR(p) function below for the calculation of the parameters. 
+Our function will use regression to compute the AIC, BIC, HQ, specifically the fit which will help us compute the erros of each regression. Each iteration will be a specific lag chosen as a parameter in the function. In each iteration, we will compute, the necessary steps to get the input needed for our IC-s. Each iteration will cbind the three multiseries present in our dataframe, meaning that for lag two, we will compute a shift of two rows for each of the series and merge them together to perform a regression. The fit function will give us the results needed. We work with matrixes, to facilitate our job. 
+
+```{r}
+select_lag_Var = function(y,maxLag)
+{
+  K = ncol(y) # Number of series (in our case 3)
+  lag = abs(as.integer(maxLag + 1)) # Numbers of lags (maxlag + 1)
+  ylagged = embed(y, lag)[, -c(1:K)] # Transforms the matrix, into a low dim euclidien space (the new table with the lagged columns)
+  yendog = y[-c(1:maxLag), ] # y but with the lags applied (meaning that the first dates are deleted)
+  sample = nrow(ylagged) # Just the numbers of row
+  idx = seq(K, K * maxLag, K) # Where our data is situated (index of column of the real data not lagged)
+  
+  # Taking the three criterions and creating empty lists
+  criteria <- matrix(NA, nrow = 3, ncol = maxLag)
+  rownames(criteria) = c("AIC(n)", "HQ(n)", "BIC(n)")
+  colnames(criteria) = paste(seq(1:maxLag))
+  
+  for (i in 1:maxLag) {
+    ys.lagged = cbind(ylagged[, c(1:idx[i])], NULL) # Creates the dataframe of lagged plus original data
+    sampletot = nrow(y)
+    nstar = ncol(ys.lagged)
+    resids = lm.fit(x=ys.lagged, y=yendog)$residuals #Takes the residual of every regression for each lag
+    sigma.det = det(crossprod(resids)/sample) # Residu/number of rows
+    # Bare in mind that K is number columns (3 in our equation)
+    criteria[1, i] = log(sigma.det) + (2/sample) * (i * K^2) # AIC
+    criteria[2, i] = log(sigma.det) + (2 * log(log(sample))/sample) * (i * K^2) # HQ
+    criteria[3, i] = log(sigma.det) + (log(sample)/sample) * (i * K^2) # BIC
+    
+  }
+  order = apply(criteria, 1, which.min)
+  final_list = (list(selection = order, criteria = criteria))
+  return(order)
+}
+```
+
+```{r}
+best_lag_list = select_lag_Var(data,8)
+best_lag_list
+lag_ch = min(best_lag_list)
+```
+
+The output tell us how many lag to use according to each criterion. Each criterion optimize our results and return the best value for a given lag. In our case we try to use max a lag of 8 and see what the criterions will choose. 
+
+Even before running the function we expected something bigger than 1 as a results. The GDP growth has the tendecy to have autocorrelation, especially it can be seen through the chart. We computed the first difference to create a more stationary series and it worked pretty good (we kept the orignal series). 
+
+The result showed a lag of 2 and 3 and we ended up taking 2 because of the general rule. This IC measures will choose the best model in term of compleixity (thanks to the penalty of parameters) and the best fitted model (using the errors). 
+
+
+
+
+## Question3 : Then using your VAR model, simulate the following impacts:
+    o A negative quarter of growth of -8% for China: what are the consequences over the other economies over the next 4 quarters?
+    o A negative quarter of growth of -5% in the eurozone: what are the consequences over the other economies over the next 4 quarters?
+    o A negative quarter of growth of -5% in the US: what are the consequences for the other economies over the next 4 quarters?
+    
+    
+We create a VAR(p) in this section. This will help us get the results for the questions that are asked in the project. The function will it's generalized to VAR(p) and the input will comme from the select_lag_Var function. This will help us the optimal lag chosen through the criterions. 
+
+```{r}
+mvnorm<-function(X,mu,sigma)
+{
+  # We calculate the density of a normal distribution 
+  A=(2*pi)^(ncol(sigma)/2)
+  B=det(sigma)^(1/2)
+  C=-1/2*t(X-mu)%*%solve(sigma)%*%(X-mu)
+  D=exp(C)
+  return(1/(A*B)*D)
+}
+```
+
+
+
+The complexity of this function will be seen when computing the dimension of the phi_1 to phi_n. Having k as the number of series, p the number of lag, we need to create a list of the numbers of parameters to be inputed. The number of parameters can be estimated with k(1+k*p) formula, which gets out hands pretty quick. That's why writing every VAR will be difficult and a generlized function will be more simple. 
+
+The function will take the chosen lag, and will start by calculating phi_0 and starting from phi_1, everything will be calculated through a loop and stocked into a list. We stock matrixes in a list for simplicity of getting the results.
+
+```{r}
+VAR_loglik<-function(para,X)
+{
+  phi_0=para[1:ncol(X)] # it will get the first paramaters of phi zero
+  list_matrix <- list() # Empty list that will stock the other matrix of parameters. 
+  E = matrix(phi_0,nrow(X)-lag_ch,3,byrow=TRUE) # Starting point of expectation, this will not change, only updated through interations.
+  for (i in 1:lag_ch){
+    list_matrix[[i]]=matrix(para[ncol(X)*(1+(i-1)*ncol(X))+1:length(para)],ncol(X),ncol(X)) # We create phi_1 ..... ph_p
+    
+    E = E+X[1:(nrow(X)-lag_ch),]%*%list_matrix[[i]] # we calculate the expectation (n-p dimension) 
+  }
+
+  residus=X[1:(nrow(X)-lag_ch),]-E # We get the errors from real X - Expected
+  sigma=var(residus) # Compute the simga of the residuals
+
+  loglik=0
+  for (i in 2:(nrow(data)-(lag_ch+1)))
+  {
+    temp=mvnorm(data[i,], E[i-1,],sigma)
+    temp=log(temp)
+    loglik=loglik-temp
+    # Calculate the Log-L which should be minimized
+  }
+  #print(loglik)
+  return(loglik)
+}
+```
+
+In the end the function will give us the minimized LogL found by the function. 
+
+#### Initialisation of parameters
+
+Here we create the list of parameters using the formula that we gave for finding the number of parameters.
+
+```{r}
+para = numeric(ncol(data)*(1+lag_ch*ncol(data)))
+para
+```
+
+We give a first try to see how the function will output a LogL starting from a list of zeros without optim. We get a LL of 1555, this will help us later compare with optim one. 
+
+```{r}
+VAR_loglik(para,data)
+```
+
+This function will give us the opportunity to make our function converge and find the best parameters that will minimize our LL. Being a VAR(2) k = 3, it will take a little bit of time to compute but it will be fast enough. 
+
+To give a better chance, the right thing to do was to compute some random parameters, but we chose to let them zero since our function converge without problem (meaning that hopefully it found the global minimum and not a local one).
+
+BFGS is Quasi-Newton second-derivative  line search family method, one of the most powerful methods to solve unconstrained optimization problem.
+
+```{r}
+estimation = optim(para,VAR_loglik,,data,method = "BFGS")
+estimation
+```
+
+This function will search parameter which will minimize the log-likelihood. When best parameters are found, we can use them in our VAR function for the best result.
+
+We now have optimal coefficients for our VAR model. However, all the variables in the VAR model depend on each other. This interdependence distorts the effect of the coefficients of our VAR model and therefore our reaction forecasts following a shock. To improve our forecast, we can build our model differently. We could for example use an IRF model.
+
+In deed, a classic way to analyze shocks in VAR models is to create an orthogonal impulse response function. To achieve this, we need a variance-covariance matrix.
+
+This matrix is obtained thanks to the function below:
+
+```{r}
+para = estimation$par
+
+get_sigma<-function(para,X)
+  ## the new para that we found and we apply the same function as before
+{
+  phi_0=para[1:ncol(X)]
+  list_matrix <- list()
+  E = matrix(phi_0,nrow(X)-lag_ch,3,byrow=TRUE) 
+  for (i in 1:lag_ch){
+    list_matrix[[i]]=matrix(para[ncol(X)*(1+(i-1)*ncol(X))+1:length(para)],ncol(X),ncol(X))
+    
+    E = E+X[1:(nrow(X)-lag_ch),]%*%list_matrix[[i]] 
+  }
+  
+  residus=X[1:(nrow(X)-lag_ch),]-E
+  sigma=var(residus) 
+  results <- list(sigma = sigma, phi_1 = list_matrix[[1]])
+  return(results)
+}
+```
+
+It returns us, the covariance - variance matrix of the optimal parameters (the sigma matrix). But we also need the parameters of the first lag.
+
+```{r}
+sigma = get_sigma(para,data)$sigma
+sigma
+phi_1 = get_sigma(para,data)$phi_1
+phi_1
+```
+
+The goal is then to carry out a Cholesky transformation on the variance-covariance matrix to have a triangular matrix which will be used later to calculate the IRF functions. 
+
+```{r}
+# This the P matrix that it's inversible
+P = t(chol(sigma))
+P
+```
+
+Impulse response analysis is an important step in econometric analyes, which employ vector autoregressive models. Their main purpose is to describe the evolution of a model’s variables in reaction to a shock in one or more variables. This feature allows to trace the transmission of a single shock within an otherwise noisy system of equations and, thus, makes them very useful tools in the assessment of economic policies. This post provides an introduction to the concept and interpretation of impulse response functions as they are commonly used in the VAR literature.
+
+
+### 1 ) A negative quarter of growth of -8% for China: what are the consequences over the other economies over the next 4 quarters?
+
+Normally we are used to see IRF charts with confidence interval to check if the shock is statistically significant. Unfortunatelly, after searching a lot, we coudldn't construct the confidence interval.
+
+However, we can still explain our shocks.
+Following in order, the charts represent the impact in China, USA and Eurozone. 
+```{r}
+E = numeric(3) # Create a dim 3 of zeros list
+E[1] = -0.08 # Input a shock of negative -0.8
+horizon = 10 # We'll comment the first 4 timeframes (1 year) but it looks better shown like this
+IRF = c()
+for(i in 1:horizon)
+{
+  #print(i)
+  phi = phi_1^i
+  #print(phi)
+  temp = phi%*%P%*%E
+  #print(temp)
+  IRF=cbind(IRF,temp)
+}
+# Construction des trois impact sur les trois series
+#dev.off()
+for (i in 1:3)
+{
+  plot(IRF[i,])
+}
+
+```
+China is one of the superpowers of the world, in term of production and exports. We have seen what happened during the last years in prices of goods with the China vs USA war. Every impact will repercute in other markets. However we don't see big significant moves economically. The shocks stop at horizon 4 (meaning after one year) but in term of impact, are really light.
+
+In China as expected this shock will have negative impact. But it will be the the same in USA. We see a difference in Eurozone, even if we said that EU and USA have a big correlation, we see that the response is not the same. EU start with a positive response and ends up with negative ones. 
+
+
+### 2 ) A negative quarter of growth of -5% in the eurozone: what are the consequences over the other economies over the next 4 quarters?
+
+Here we suppose a shock of -5% in the Eurozone. As wee said, Eurozone is highly correlated with US GDP growth. 
+
+Starting with China, the effect fades pretty soon, this shows, the little correlation between these two series is shown in the shock. It's already normal in the third quarter after the shock.
+
+
+USA need 5 quarters to return to level zero, the correlation between these two series it's quite interesting shown in this chart. 
+
+The shock of EU on EU is negative as expected. It needs approx 5 quarters to return to zero but it lasts quite a bit. 
+
+As expected, the response are negative.However, as the first chart, we can't say if these are significant or not. We don't have confidence intervall to show that.
+
+```{r}
+E = numeric(3)
+E[3] = -0.05
+horizon = 10
+IRF = c()
+for(i in 1:horizon)
+{
+  #print(i)
+  phi = phi_1^i
+  #print(phi)
+  temp = phi%*%P%*%E
+  #print(temp)
+  IRF=cbind(IRF,temp)
+}
+
+# Construction des trois impact sur les trois series
+#dev.off()
+for (i in 1:3)
+{
+  plot(IRF[i,])
+}
+
+```
+
+
+### 3 ) A negative quarter of growth of -5% in the US: what are the consequences for the other economies over the next 4 quarters?
+
+We compute a negative shock of 5% in the US GDP. The results are quite interesting.
+
+Starting with China, the response go away pretty soon, we might expect that China's GDP will have very little negative impact.
+
+USA on USA, take approx 7 quarters to erase the effect. That's pretty harsh and long. We can see the persitency in this series. 
+
+What is more strange, is the impact on EU. It starts positive and it goes negative. This is something that would be interesting to explain. We can accept also that we did an error on our calculations. But for fun we might suggest some ideas of capital flows from US to EU, which might boost the EU economy in the short term but as we know, everything that happens in USA, gets to EU pretty soon and the effect becomes negative. However the shock fades pretty soon again. 
+
+```{r}
+E = numeric(3)
+E[2] = -0.05
+horizon = 10
+IRF = c()
+for(i in 1:horizon)
+{
+  #print(i)
+  phi = phi_1^i
+  #print(phi)
+  temp = phi%*%P%*%E
+  #print(temp)
+  IRF=cbind(IRF,temp)
+}
+for (i in 1:3)
+{
+  plot(IRF[i,])
+}
+```
+
+We should not forget the when we use a VAR, every impact of t in t-1 will impact also the t-1 of the other series. 
+
+
+# III ) Conclusion : 
+
+### Why is it important to estimate these second-round effects today? Are you results consistent with others’? Explain your findings and try to link them to (1) the literature you have access to and (2) to the current pandemic situation.
+
+Economic globalization is the increasing economic interdependence of national economies across the world through a rapid increase in cross-border movement of goods, services, technology, and capital. Whereas the globalization of business is centered around the diminution of international trade regulations as well as tariffs, taxes, and other impediments that suppresses global trade, economic globalization is the process of increasing economic integration between countries, leading to the emergence of a global marketplace or a single world market. Currently we live in a interconnected world, countries that have made deals that are running from years. 
+
+This economic globalization can be seen as good but at the same time as bad. Countries have facilitated international aid between them but at the same, does this mean that they are so much interconnected that the minor shock could be felt in other parts of the world? This is the part where second round effects are important to observe and to check. 
+
+We think that our results are pretty consistent since a negative shock, showed negative responses, but we were expected longer effects sometimes.
+
+We all have seen that each major impact during the last decades has been fatal not only for the country where it happened but everywhere. Opening up the financial system to foreign capital flows can and has led to financial instability and disastrous financial crises, which have a devastating impact on the economy.
+
+A good example would have been the trade war. US atacking China and China fighting back, but at the same time US atacking EU for the usage of dollars. We have seen consequences in the overall economy, stock market, domestic politics of each country involved and foreign affairs. During 2019 we have seen some of the sharpest drops of the Dow during trade war news press or leader's meetings. Some other important impacts were, foreign direct investement has slowed, european countries where impacted, especially Germany eventhough, the relation between Germany, US and China are good. We saw a sharp decline of semi conductors demand. 
+
+Big corporations like Harley Davidson where also impacted. The trade war has indirectly caused some companies to go bankrupt. One of them, Taiwanese LCD panel manufacturer Chunghwa Picture Tubes (CPT), went bankrupt as a result of an excess supply of panels and a subsequent collapse in prices, which was aided by vulnerability to the trade war (caused by overexpansion in China), a slowing Taiwanese and global economy and a slowdown in the electronics sector.
+
+As we can see all of this impacts show that the economies are interconnected and the usage of this models is still essential even after all these years.
+
+Finally, the latest shock is COVID-19. This is a good time to remind ourselves when to turn off the models. This shock has been everywhere the same and it reached rich and poor countries. That's why we think that the usage of these models during this time is not a good thing. Even after the cure, nothing will be the same. A lot of countries are trying to be dependante and self produce products that were needed to be imported before. 
+We will end our thoughts with a reasonable question. When it will be relevant to turn on these models?
